@@ -31,5 +31,6 @@ go.work.sum
 # IDE files
 .idea
 .vscode
+.devcontainer
 
 vendor
