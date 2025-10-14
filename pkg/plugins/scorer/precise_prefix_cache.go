@@ -121,7 +121,13 @@ func (s *PrecisePrefixCacheScorer) Score(ctx context.Context, _ *types.CycleStat
 		return nil
 	}
 
-	scores, err := s.kvCacheIndexer.GetPodScores(ctx, request.Prompt, request.TargetModel, nil)
+	prompt, err := promptString(request)
+	if err != nil {
+		loggerDebug.Error(err, "Failed to extract prompt from request")
+		return nil
+	}
+
+	scores, err := s.kvCacheIndexer.GetPodScores(ctx, prompt, request.TargetModel, nil)
 	if err != nil {
 		loggerDebug.Error(err, "Failed to get pod scores")
 		return nil
@@ -138,4 +144,26 @@ func (s *PrecisePrefixCacheScorer) Score(ctx context.Context, _ *types.CycleStat
 	}
 
 	return indexedScoresToNormalizedScoredPods(pods, podToKey, scores)
+}
+
+func promptString(request *types.LLMRequest) (string, error) {
+	if request == nil {
+		return "", fmt.Errorf("llm request is nil")
+	}
+	if request.Body == nil {
+		return "", fmt.Errorf("llm request body is nil")
+	}
+
+	switch {
+	case request.Body.Completions != nil:
+		return request.Body.Completions.Prompt, nil
+	case request.Body.ChatCompletions != nil:
+		bytes, err := json.Marshal(request.Body.ChatCompletions.Messages)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal chat completion messages: %w", err)
+		}
+		return string(bytes), nil
+	default:
+		return "", fmt.Errorf("llm request body is missing completions or chat completions inputs")
+	}
 }

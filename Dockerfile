@@ -18,6 +18,7 @@ COPY go.sum go.sum
 # Copy the go source
 COPY cmd/ cmd/
 COPY pkg/ pkg/
+COPY gateway-api-inference-extension/ gateway-api-inference-extension/
 
 # HuggingFace tokenizer bindings
 RUN mkdir -p lib

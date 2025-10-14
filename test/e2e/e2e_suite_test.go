@@ -15,10 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	k8slog "sigs.k8s.io/controller-runtime/pkg/log"
 	infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/env"
+	testutils "sigs.k8s.io/gateway-api-inference-extension/test/utils"
 )
 
 const (
@@ -55,6 +55,8 @@ const (
 )
 
 var (
+	testConfig *testutils.TestConfig
+
 	ctx       = context.Background()
 	k8sClient client.Client
 	port      string
@@ -138,20 +140,27 @@ func setupK8sCluster() {
 }
 
 func setupK8sClient() {
-	k8sCfg := config.GetConfigOrDie()
-	gomega.ExpectWithOffset(1, k8sCfg).NotTo(gomega.BeNil())
+	testConfig = testutils.NewTestConfig(nsName)
 
-	err := clientgoscheme.AddToScheme(scheme)
+	err := clientgoscheme.AddToScheme(testConfig.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = apiextv1.AddToScheme(scheme)
+	err = apiextv1.AddToScheme(testConfig.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = infextv1a2.Install(scheme)
+	err = infextv1a2.Install(testConfig.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	k8sClient, err = client.New(k8sCfg, client.Options{Scheme: scheme})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	testConfig.CreateCli()
+
+	scheme = testConfig.Scheme
+	k8sClient = testConfig.K8sClient
+	ctx = testConfig.Context
+	existsTimeout = testConfig.ExistsTimeout
+	readyTimeout = testConfig.ReadyTimeout
+	modelReadyTimeout = testConfig.ModelReadyTimeout
+	interval = testConfig.Interval
+
 	gomega.Expect(k8sClient).NotTo(gomega.BeNil())
 
 	k8slog.SetLogger(ginkgo.GinkgoLogr)

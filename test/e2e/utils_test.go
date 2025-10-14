@@ -62,19 +62,17 @@ func createObjsFromYaml(docs []string) []string {
 
 		// Wait for the created object to exist.
 		clientObj := getClientObject(kind)
-		testutils.EventuallyExists(ctx, func() error {
+		testutils.EventuallyExists(testConfig, func() error {
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: nsName, Name: name}, clientObj)
-		}, existsTimeout, interval)
+		})
 
 		switch kind {
 		case "CustomResourceDefinition":
 			// Wait for the CRD to be established.
-			testutils.CRDEstablished(ctx, k8sClient, clientObj.(*apiextv1.CustomResourceDefinition),
-				readyTimeout, interval)
+			testutils.CRDEstablished(testConfig, clientObj.(*apiextv1.CustomResourceDefinition))
 		case "Deployment":
 			// Wait for the deployment to be available.
-			testutils.DeploymentAvailable(ctx, k8sClient, clientObj.(*appsv1.Deployment),
-				modelReadyTimeout, interval)
+			testutils.DeploymentAvailable(testConfig, clientObj.(*appsv1.Deployment))
 		}
 	}
 	return objNames

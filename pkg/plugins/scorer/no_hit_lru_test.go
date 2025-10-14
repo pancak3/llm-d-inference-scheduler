@@ -22,6 +22,7 @@ import (
 type fakeHandle struct {
 	ctx     context.Context
 	plugins map[string]plugins.Plugin
+	pods    []backendmetrics.PodMetrics
 }
 
 func newFakeHandle(ctx context.Context) *fakeHandle {
@@ -50,6 +51,19 @@ func (h *fakeHandle) GetAllPlugins() []plugins.Plugin {
 
 func (h *fakeHandle) GetAllPluginsWithNames() map[string]plugins.Plugin {
 	return h.plugins
+}
+
+func (h *fakeHandle) PodList(predicate func(backendmetrics.PodMetrics) bool) []backendmetrics.PodMetrics {
+	if predicate == nil {
+		return append([]backendmetrics.PodMetrics(nil), h.pods...)
+	}
+	result := make([]backendmetrics.PodMetrics, 0, len(h.pods))
+	for _, pod := range h.pods {
+		if predicate(pod) {
+			result = append(result, pod)
+		}
+	}
+	return result
 }
 
 type stubPlugin struct {

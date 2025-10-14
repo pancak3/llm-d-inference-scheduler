@@ -42,7 +42,7 @@ func PdProfileHandlerFactory(name string, rawParameters json.RawMessage, _ plugi
 		DecodeProfile:    defaultDecodeProfile,
 		PrefillProfile:   defaultPrefillProfile,
 		PrefixPluginName: defaultPrefixPluginName,
-		HashBlockSize:    prefix.DefaultHashBlockSize,
+		HashBlockSize:    prefix.DefaultBlockSize,
 	}
 	if rawParameters != nil {
 		if err := json.Unmarshal(rawParameters, &parameters); err != nil {
@@ -105,6 +105,13 @@ func (h *PdProfileHandler) Pick(ctx context.Context, cycleState *types.CycleStat
 		return map[string]*framework.SchedulerProfile{}
 	}
 
+	promptLength := 0
+	if length, err := promptLengthBytes(request); err != nil {
+		log.FromContext(ctx).V(logutil.DEBUG).Info("unable to compute prompt length for PD decision", "error", err)
+	} else {
+		promptLength = length
+	}
+
 	if h.pdThreshold > 0 {
 		// if we're here that means decode profile ran successfully, and we have additional profile configured that didn't run yet,
 		// which means PD is enabled (otherwise, prefill profile is not configured at all and this profile handler is not used).
@@ -114,15 +121,18 @@ func (h *PdProfileHandler) Pick(ctx context.Context, cycleState *types.CycleStat
 		prefixState, err := types.ReadCycleStateKey[*prefix.SchedulingContextState](cycleState, plugins.StateKey(h.prefixPluginTypedName.String()))
 		if err != nil {
 			log.FromContext(ctx).Error(err, "unable to read prefix state")
-		} else {
+		} else if promptLength > 0 {
 			decodePod := profileResults[h.decodeProfile].TargetPods[0].GetPod().NamespacedName
 			hitPrefix := max(prefixState.PrefixCacheServers[prefix.ServerID(decodePod)]-1, 0) // The first hit is always the model name
-			hitPercentagePrefix = float64(hitPrefix*h.hashBlockSize) / float64(len(request.Prompt))
+			hitPercentagePrefix = float64(hitPrefix*h.hashBlockSize) / float64(promptLength)
 			log.FromContext(ctx).V(logutil.DEBUG).Info("Computed hit percentage for prefix cache", "hitPercentage", hitPercentagePrefix,
-				"promptLength", len(request.Prompt))
+				"promptLength", promptLength)
+		} else {
+			log.FromContext(ctx).V(logutil.DEBUG).Info("Prompt length unavailable, defaulting to zero hit percentage")
 		}
 
-		if (1.0-hitPercentagePrefix)*float64(len(request.Prompt)) < float64(h.pdThreshold) {
+		suffixLength := (1.0 - hitPercentagePrefix) * float64(promptLength)
+		if suffixLength < float64(h.pdThreshold) {
 			log.FromContext(ctx).Info("Non-cached suffix is smaller than threshold, using decode profile only", "hitPercentage", hitPercentagePrefix)
 			return map[string]*framework.SchedulerProfile{} // do not run prefill
 		}
@@ -159,4 +169,35 @@ func (h *PdProfileHandler) ProcessResults(_ context.Context, _ *types.CycleState
 			h.decodeProfile: profileResults[h.decodeProfile], // return decode only
 		},
 	}, nil
+}
+
+func promptLengthBytes(request *types.LLMRequest) (int, error) {
+	bytes, err := promptBytes(request)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(bytes), nil
+}
+
+func promptBytes(request *types.LLMRequest) ([]byte, error) {
+	if request == nil {
+		return nil, fmt.Errorf("llm request is nil")
+	}
+	if request.Body == nil {
+		return nil, fmt.Errorf("llm request body is nil")
+	}
+
+	switch {
+	case request.Body.Completions != nil:
+		return []byte(request.Body.Completions.Prompt), nil
+	case request.Body.ChatCompletions != nil:
+		bytes, err := json.Marshal(request.Body.ChatCompletions.Messages)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal chat completion messages: %w", err)
+		}
+		return bytes, nil
+	default:
+		return nil, fmt.Errorf("llm request body is missing completions or chat completions inputs")
+	}
 }
