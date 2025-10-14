@@ -19,11 +19,10 @@ import (
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/plugins/scorer"
 )
 
-var _ plugins.Handle = &fakeHandle{}
-
 type fakeHandle struct {
 	ctx     context.Context
 	plugins map[string]plugins.Plugin
+	pods    []backendmetrics.PodMetrics
 }
 
 func newFakeHandle(ctx context.Context) *fakeHandle {
@@ -54,8 +53,17 @@ func (h *fakeHandle) GetAllPluginsWithNames() map[string]plugins.Plugin {
 	return h.plugins
 }
 
-func (h *fakeHandle) PodList(_ func(backendmetrics.PodMetrics) bool) []backendmetrics.PodMetrics {
-	return make([]backendmetrics.PodMetrics, 0)
+func (h *fakeHandle) PodList(predicate func(backendmetrics.PodMetrics) bool) []backendmetrics.PodMetrics {
+	if predicate == nil {
+		return append([]backendmetrics.PodMetrics(nil), h.pods...)
+	}
+	result := make([]backendmetrics.PodMetrics, 0, len(h.pods))
+	for _, pod := range h.pods {
+		if predicate(pod) {
+			result = append(result, pod)
+		}
+	}
+	return result
 }
 
 type stubPlugin struct {
@@ -337,7 +345,7 @@ func TestNoHitLRUPreferLeastRecentlyUsedAfterColdRequests(t *testing.T) {
 	t.Run("initial cold request seeds cache", func(_ *testing.T) {
 		coldReqA := &types.LLMRequest{RequestId: "cold-1"}
 		scorer.Score(ctx, toPrefixState(make(map[prefix.ServerID]int)), coldReqA, pods)
-		scorer.PreRequest(ctx, coldReqA, requestToPod(podA))
+		scorer.PreRequest(ctx, coldReqA, requestToPod(podA), 0)
 		// After podA handles a cold request, other pods should score higher for new cold requests
 		assertHighestScoredPod(podB, "after-podA-used")
 	})
@@ -367,7 +375,7 @@ func TestNoHitLRUPreferLeastRecentlyUsedAfterColdRequests(t *testing.T) {
 				t.Fatalf("expected neutral score for warm request, got %f", score)
 			}
 		}
-		scorer.PreRequest(ctx, warmReq, requestToPod(podB))
+		scorer.PreRequest(ctx, warmReq, requestToPod(podB), 0)
 		postWarmReq := &types.LLMRequest{RequestId: "cold-after-warm"}
 		postWarmScores := scorer.Score(ctx, toPrefixState(make(map[prefix.ServerID]int)), postWarmReq, pods)
 		if postWarmScores[podB] <= postWarmScores[podA] {
@@ -379,7 +387,7 @@ func TestNoHitLRUPreferLeastRecentlyUsedAfterColdRequests(t *testing.T) {
 		// Simulate podB handling a cold request
 		coldReqB := &types.LLMRequest{RequestId: "cold-2"}
 		scorer.Score(ctx, toPrefixState(make(map[prefix.ServerID]int)), coldReqB, pods)
-		scorer.PreRequest(ctx, coldReqB, requestToPod(podB))
+		scorer.PreRequest(ctx, coldReqB, requestToPod(podB), 0)
 		// Now podC should score highest since both podA and podB have been used
 		assertHighestScoredPod(podC, "after-podB-used")
 	})
@@ -388,7 +396,7 @@ func TestNoHitLRUPreferLeastRecentlyUsedAfterColdRequests(t *testing.T) {
 		// Simulate podC handling a cold request
 		coldReqC := &types.LLMRequest{RequestId: "cold-3"}
 		scorer.Score(ctx, toPrefixState(make(map[prefix.ServerID]int)), coldReqC, pods)
-		scorer.PreRequest(ctx, coldReqC, requestToPod(podC))
+		scorer.PreRequest(ctx, coldReqC, requestToPod(podC), 0)
 		// Now podA should score highest again (LRU rotation)
 		assertHighestScoredPod(podA, "after-podC-used")
 	})

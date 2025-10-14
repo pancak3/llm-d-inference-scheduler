@@ -19,6 +19,7 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/common"
+	"github.com/llm-d/llm-d-inference-scheduler/pkg/plugins/requestutil"
 )
 
 const (
@@ -134,7 +135,7 @@ func (h *PdProfileHandler) Pick(ctx context.Context, cycleState *types.CycleStat
 	}
 
 	if h.pdThreshold > 0 {
-		userInput, err := getUserInputBytes(request)
+		userInput, err := requestutil.PromptBytes(request)
 		if err != nil {
 			log.FromContext(ctx).V(logutil.DEBUG).Error(err, "Failed to get user input bytes")
 			return nil
@@ -215,13 +216,4 @@ func (h *PdProfileHandler) ProcessResults(_ context.Context, _ *types.CycleState
 		PrimaryProfileName: h.decodeProfile,
 		ProfileResults:     updatedResults,
 	}, nil
-}
-
-func getUserInputBytes(request *types.LLMRequest) ([]byte, error) {
-	if request.Body.Completions != nil { // assumed to be valid if not nil
-		return []byte(request.Body.Completions.Prompt), nil
-	}
-
-	// must be chat-completions request at this point, return bytes of entire messages
-	return json.Marshal(request.Body.ChatCompletions.Messages)
 }
