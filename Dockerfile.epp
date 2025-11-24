@@ -21,6 +21,8 @@ COPY go.sum go.sum
 # Copy the go source
 COPY cmd/ cmd/
 COPY pkg/ pkg/
+COPY gateway-api-inference-extension/ gateway-api-inference-extension/
+COPY scripts/fetch-python-wrapper.sh scripts/fetch-python-wrapper.sh
 
 RUN go mod download
 
