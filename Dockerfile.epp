@@ -23,13 +23,14 @@ COPY scripts/fetch-python-wrapper.sh scripts/fetch-python-wrapper.sh
 
 RUN go mod download
 
-# Copy Python wrapper and requirements from kv-cache-manager dependency
-# Extract version dynamically and copy to a known location
-RUN KVCACHE_MANAGER_VERSION=$(go list -m -f '{{.Version}}' github.com/llm-d/llm-d-kv-cache-manager) && \
-    mkdir -p /workspace/kv-cache-manager-wrapper && \
-    cp /go/pkg/mod/github.com/llm-d/llm-d-kv-cache-manager@${KVCACHE_MANAGER_VERSION}/pkg/preprocessing/chat_completions/render_jinja_template_wrapper.py \
+# Copy local llm-d-kv-cache-manager
+COPY llm-d-kv-cache-manager/ llm-d-kv-cache-manager/
+
+# Prepare wrapper and requirements from local source (simulating what the extraction would do)
+RUN mkdir -p /workspace/kv-cache-manager-wrapper && \
+    cp /workspace/llm-d-kv-cache-manager/pkg/preprocessing/chat_completions/render_jinja_template_wrapper.py \
        /workspace/kv-cache-manager-wrapper/ && \
-    cp /go/pkg/mod/github.com/llm-d/llm-d-kv-cache-manager@${KVCACHE_MANAGER_VERSION}/pkg/preprocessing/chat_completions/requirements.txt \
+    cp /workspace/llm-d-kv-cache-manager/pkg/preprocessing/chat_completions/requirements.txt \
        /workspace/kv-cache-manager-wrapper/requirements.txt
 
 # HuggingFace tokenizer bindings (static lib)
