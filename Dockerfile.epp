@@ -21,10 +21,13 @@ COPY go.sum go.sum
 # Copy the go source
 COPY scripts/fetch-python-wrapper.sh scripts/fetch-python-wrapper.sh
 
-RUN go mod download
-
 # Copy local llm-d-kv-cache-manager
 COPY llm-d-kv-cache-manager/ llm-d-kv-cache-manager/
+
+# Copy local gateway-api-inference-extension
+COPY gateway-api-inference-extension/ gateway-api-inference-extension/
+
+RUN go mod download
 
 # Prepare wrapper and requirements from local source (simulating what the extraction would do)
 RUN mkdir -p /workspace/kv-cache-manager-wrapper && \

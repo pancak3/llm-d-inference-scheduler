@@ -52,6 +52,12 @@ func PrecisePrefixCachePluginFactory(name string, rawParameters json.RawMessage,
 		KVEventsConfig: kvevents.DefaultConfig(),
 	}
 
+	if rawParameters != nil {
+		if err := json.Unmarshal(rawParameters, &parameters); err != nil {
+			return nil, fmt.Errorf("failed to parse %s plugin config: %w", PrecisePrefixCachePluginType, err)
+		}
+	}
+
 	// read hugging face token from environment variable if set
 	if token := os.Getenv("HF_TOKEN"); token != "" &&
 		parameters.IndexerConfig != nil &&
@@ -60,10 +66,11 @@ func PrecisePrefixCachePluginFactory(name string, rawParameters json.RawMessage,
 		parameters.IndexerConfig.TokenizersPoolConfig.HFTokenizerConfig.HuggingFaceToken = token
 	}
 
-	if rawParameters != nil {
-		if err := json.Unmarshal(rawParameters, &parameters); err != nil {
-			return nil, fmt.Errorf("failed to parse %s plugin config: %w", PrecisePrefixCachePluginType, err)
-		}
+	// read python hash seed from environment variable if set
+	if seed := os.Getenv("PYTHONHASHSEED"); seed != "" &&
+		parameters.IndexerConfig != nil &&
+		parameters.IndexerConfig.TokenProcessorConfig != nil {
+		parameters.IndexerConfig.TokenProcessorConfig.HashSeed = seed
 	}
 
 	scorer, err := New(handle.Context(), parameters)
@@ -139,7 +146,6 @@ func (s *PrecisePrefixCacheScorer) Score(ctx context.Context, _ *types.CycleStat
 		logger.Error(err, "Failed to get pod scores")
 		return nil
 	}
-	debugLogger.Info("Got pod scores", "scores", scores)
 
 	podToKey := func(pod types.Pod) (string, bool) {
 		metricsPod := pod.GetPod()
@@ -150,7 +156,18 @@ func (s *PrecisePrefixCacheScorer) Score(ctx context.Context, _ *types.CycleStat
 		return metricsPod.Address, true
 	}
 
-	return indexedScoresToNormalizedScoredPods(pods, podToKey, scores)
+	normalizedScores := indexedScoresToNormalizedScoredPods(pods, podToKey, scores)
+	if debugLogger.Enabled() {
+		logScores := make(map[string]float64)
+		for pod, score := range normalizedScores {
+			if p := pod.GetPod(); p != nil {
+				logScores[p.PodName] = score
+			}
+		}
+		debugLogger.Info("Got pod scores", "scores", logScores)
+	}
+
+	return normalizedScores
 }
 
 // getScores retrieves the pod scores from the KV-cache indexer
@@ -172,6 +189,7 @@ func (s *PrecisePrefixCacheScorer) getScores(ctx context.Context, request *types
 			traceLogger.Info("Both chat/completions and completions present; defaulting to chat/completions")
 		}
 
+		addGenPrompt := true
 		renderReq := &preprocessing.RenderJinjaTemplateRequest{
 			Conversations:             make([]preprocessing.ChatMessage, 0),
 			Tools:                     request.Body.ChatCompletions.Tools,
@@ -179,8 +197,13 @@ func (s *PrecisePrefixCacheScorer) getScores(ctx context.Context, request *types
 			ChatTemplate:              request.Body.ChatCompletions.ChatTemplate,
 			ReturnAssistantTokensMask: request.Body.ChatCompletions.ReturnAssistantTokensMask,
 			ContinueFinalMessage:      request.Body.ChatCompletions.ContinueFinalMessage,
-			AddGenerationPrompt:       request.Body.ChatCompletions.AddGenerationPrompt,
+			AddGenerationPrompt:       &addGenPrompt,
 			ChatTemplateKWArgs:        request.Body.ChatCompletions.ChatTemplateKWArgs,
+			TruncatePromptTokens:      request.Body.ChatCompletions.TruncatePromptTokens,
+		}
+
+		if request.Body.ChatCompletions.AddGenerationPrompt != nil {
+			renderReq.AddGenerationPrompt = request.Body.ChatCompletions.AddGenerationPrompt
 		}
 
 		// Convert messages to the format expected by the renderer
